@@ -1,41 +1,57 @@
 import streamlit as st
-import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import requests
 
-st.set_page_config(page_title="PID Tuner", layout="wide")
-st.title("PID Tuner Simulator")
-st.write("Move the sliders and watch how P, I, D affects the system response")
+st.set_page_config(
+    page_title="Nigeria Inflation Tracker",
+    page_icon="📈",
+    layout="wide"
+)
 
-st.sidebar.header("PID Gains")
-kp = st.sidebar.slider("Kp - Proportional", 0.0, 5.0, 1.0, 0.1)
-ki = st.sidebar.slider("Ki - Integral", 0.0, 2.0, 0.1, 0.05)
-kd = st.sidebar.slider("Kd - Derivative", 0.0, 1.0, 0.05, 0.01)
+st.title("Nigeria Inflation Tracker 🇳🇬")
+st.write("Live Consumer Price Index data from World Bank API")
 
-t = np.linspace(0, 10, 500)
-setpoint = 1.0
-dt = t[1] - t[0]
+# --- Fetch Data ---
+@st.cache_data
+def load_data():
+    url = "https://api.worldbank.org/v2/country/NG/indicator/FP.CPI.TOTL.ZG?format=json&per_page=100"
+    response = requests.get(url)
+    data = response.json()[1]
 
-y = np.zeros_like(t)
-error_sum = 0
-prev_error = 0
+    df = pd.DataFrame(data)
+    df = df[['date', 'value']]
+    df.columns = ['Year', 'Inflation Rate (%)']
+    df = df.dropna()
+    df['Year'] = df['Year'].astype(int)
+    df = df.sort_values('Year')
+    return df
 
-for i in range(1, len(t)):
-    error = setpoint - y[i-1]
-    error_sum += error * dt
-    d_error = (error - prev_error) / dt
-    output = kp*error + ki*error_sum + kd*d_error
-    y[i] = y[i-1] + output * dt * 0.5
-    prev_error = error
+try:
+    df = load_data()
 
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(t, y, label='System Response', linewidth=2)
-ax.axhline(setpoint, color='r', linestyle='--', label='Setpoint')
-ax.set_xlabel('Time (s)')
-ax.set_ylabel('Output')
-ax.legend()
-ax.grid(True)
-st.pyplot(fig)
+    # --- Metrics ---
+    latest_year = df['Year'].iloc[-1]
+    latest_rate = df['Inflation Rate (%)'].iloc[-1]
+    prev_rate = df['Inflation Rate (%)'].iloc[-2]
+    change = latest_rate - prev_rate
 
-overshoot = max(0, (max(y) - setpoint) / setpoint * 100)
-st.metric("Overshoot", f"{overshoot:.1f}%")
-st.caption("Built by Milton Crespo | ROS2 + Control Systems")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Latest Year", f"{latest_year}")
+    col2.metric("Inflation Rate", f"{latest_rate:.2f}%")
+    col3.metric("YoY Change", f"{change:+.2f}%", delta=f"{change:.2f}%")
+
+    # --- Chart ---
+    st.subheader("Annual Inflation Trend")
+    st.line_chart(df.set_index('Year'))
+
+    # --- Data Table ---
+    with st.expander("View Raw Data"):
+        st.dataframe(df, use_container_width=True)
+
+except Exception as e:
+    st.error("Could not load data. World Bank API might be down.")
+    st.code(f"Error: {e}")
+
+# --- AUTHOR CREDIT - DO NOT DELETE ---
+st.markdown("---")
+st.caption("Built by Omotoso Odunayo Bolaji")
